@@ -19,9 +19,10 @@ createServer(createRequestHandler({ app, publicDirectory })).listen(config.serve
   if (!services.llm) console.log('Note: ANTHROPIC_API_KEY is not set, so report generation is disabled.');
 });
 
-// Automated ingestion: fill the database on first start, then keep it fresh.
-if (services.store.countChunks() === 0) {
-  console.log('The database is empty, so the first ingest is starting now (about a minute)...');
-  app.startIngest();
-}
+// Automated ingestion, while the server runs:
+//  1. refresh on every start, so data is never older than the last time the server ran
+//  2. refresh again every `autoRefreshHours` (skipped if a refresh or report is already running)
+// `unref()` lets the process exit normally; the timer alone doesn't keep it alive.
+console.log('Refreshing data in the background (first run on an empty database takes about a minute)...');
+app.startIngest();
 setInterval(() => app.startIngest(), config.ingest.autoRefreshHours * HOUR_MS).unref();
