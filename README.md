@@ -248,7 +248,7 @@ Each option trades something away, so none are the default:
 | Top threads covered | How many of the week's 15 most-engaged threads the document mentions (keyword heuristic) |
 | Tokens and latency | The cost of RAG: more input tokens, a slower response |
 
-**Blind LLM judge** (`src/evaluation/judgeReports.js`): a separate Claude call scores both documents from 1 to 5 on groundedness, specificity, coverage and prediction quality. It uses the real top-thread list as ground truth. It sees "Document One" and "Document Two" in **random order**, with source IDs removed.
+**Blind LLM judge** (`src/evaluation/judgeReports.js`): a separate Claude call scores both documents from 1 to 5 on groundedness, specificity, coverage and prediction quality. It uses the real top-thread list as ground truth. It sees "Document One" and "Document Two" in **random order**, with source IDs removed. The recorded order is then used to map the scores back to A and B, and to rewrite "Document One/Two" in the judge's written reasoning as "A (no RAG)" / "B (RAG)", so the verdict reads naturally on the page and in the Markdown export.
 
 **Expected outcome and how to read it:** without RAG, the model has no information about *this* week. It either states that openly in its caveats or falls back on generic, possibly outdated topics, with zero verifiable quotes and low coverage. With RAG it names the actual threads, quotes real commenters, and ties its predictions to concrete signals.
 

@@ -26,7 +26,7 @@ function renderEmptyState() {
     h('ol', {},
       h('li', {}, 'Wait for the data refresh to finish (progress is shown above).'),
       h('li', {}, 'Put your ANTHROPIC_API_KEY in a .env file and restart the server.'),
-      h('li', {}, 'Click "Generate A/B report" (about 1 to 3 minutes).'),
+      h('li', {}, 'Click "Generate A/B report" (about 2 to 3 minutes).'),
     ),
     h('p', { class: 'muted' }, 'Meanwhile, the Embedding map and Retrieval stats pages work without an API key.'),
   );
@@ -43,33 +43,84 @@ function renderHeader(report) {
 
 // ---------- A/B comparison ----------
 
+/**
+ * Two panels side by side (objective numbers | the judge's scores), then the
+ * judge's written verdict full-width underneath, where it has room to be read.
+ */
 function renderComparison({ metrics, judge }) {
   return h('section', { class: 'comparison card' },
-    h('h3', {}, 'A/B comparison'),
-    h('p', { class: 'muted' }, 'Same model, same instructions. The only difference: B also received this week\'s top threads and retrieved excerpts.'),
-    h('div', { class: 'comparison-grid' },
-      renderMetricsTable(metrics),
-      renderJudge(judge),
+    h('header', { class: 'comparison-header' },
+      h('h3', {}, 'A/B comparison'),
+      h('p', { class: 'muted' }, 'Same model, same instructions. The only difference: B also received this week\'s top threads and retrieved excerpts.'),
     ),
+    h('div', { class: 'comparison-grid' },
+      renderPanel({
+        title: 'Measured by code',
+        description: 'Counted directly from the two documents, with no AI involved, so anyone can re-check these numbers.',
+        body: renderMetricsTable(metrics),
+      }),
+      renderPanel({
+        title: 'Blind LLM judge',
+        description: 'A separate Claude call scored both documents from 1 to 5 against the week\'s real top threads, without knowing which one used RAG.',
+        body: renderJudgeScores(judge),
+      }),
+    ),
+    renderVerdict(judge),
   );
 }
 
+function renderPanel({ title, description, body }) {
+  return h('section', { class: 'comparison-panel' },
+    h('h4', {}, title),
+    h('p', { class: 'panel-description' }, description),
+    body,
+  );
+}
+
+function renderVariantHeaders(firstColumnLabel) {
+  return h('thead', {}, h('tr', {},
+    h('th', { scope: 'col' }, firstColumnLabel),
+    h('th', { scope: 'col' }, h('span', { class: 'variant-chip baseline' }, 'A · no RAG')),
+    h('th', { scope: 'col' }, h('span', { class: 'variant-chip rag' }, 'B · RAG')),
+  ));
+}
+
+// ---------- Panel 1: metrics measured by code ----------
+
 function renderMetricsTable({ baseline, rag }) {
-  const rows = [
-    { label: 'Themes found', a: baseline.themeCount, b: rag.themeCount },
-    { label: 'Predictions', a: baseline.predictionCount, b: rag.predictionCount },
-    { label: 'Real sources cited', a: baseline.uniqueSourcesCited, b: rag.uniqueSourcesCited, better: 'higher' },
-    { label: 'Invalid citations', a: baseline.invalidCitationCount, b: rag.invalidCitationCount, better: 'lower' },
-    { label: 'Quotes verified in source', a: `${baseline.verifiedQuoteCount} / ${baseline.quoteCount}`, b: `${rag.verifiedQuoteCount} / ${rag.quoteCount}` },
-    { label: 'Top threads covered', a: coverageText(baseline), b: coverageText(rag), aValue: baseline.topThreadCoverage.covered, bValue: rag.topThreadCoverage.covered, better: 'higher' },
-    { label: 'Input tokens', a: formatNumber(baseline.inputTokens), b: formatNumber(rag.inputTokens) },
-    { label: 'Output tokens', a: formatNumber(baseline.outputTokens), b: formatNumber(rag.outputTokens) },
-    { label: 'Latency', a: seconds(baseline.latencyMs), b: seconds(rag.latencyMs) },
+  const groups = [
+    {
+      title: 'Content',
+      rows: [
+        { label: 'Themes found', a: baseline.themeCount, b: rag.themeCount },
+        { label: 'Predictions', a: baseline.predictionCount, b: rag.predictionCount },
+      ],
+    },
+    {
+      title: 'Grounding in real discussions',
+      rows: [
+        { label: 'Real sources cited', a: baseline.uniqueSourcesCited, b: rag.uniqueSourcesCited, better: 'higher' },
+        { label: 'Invalid citations', a: baseline.invalidCitationCount, b: rag.invalidCitationCount, better: 'lower' },
+        { label: 'Quotes verified in source', a: `${baseline.verifiedQuoteCount} / ${baseline.quoteCount}`, b: `${rag.verifiedQuoteCount} / ${rag.quoteCount}`, aValue: baseline.verifiedQuoteCount, bValue: rag.verifiedQuoteCount, better: 'higher' },
+        { label: 'Top threads covered', a: coverageText(baseline), b: coverageText(rag), aValue: baseline.topThreadCoverage.covered, bValue: rag.topThreadCoverage.covered, better: 'higher' },
+      ],
+    },
+    {
+      title: 'Cost',
+      rows: [
+        { label: 'Input tokens', a: formatNumber(baseline.inputTokens), b: formatNumber(rag.inputTokens) },
+        { label: 'Output tokens', a: formatNumber(baseline.outputTokens), b: formatNumber(rag.outputTokens) },
+        { label: 'Time to write', a: seconds(baseline.latencyMs), b: seconds(rag.latencyMs) },
+      ],
+    },
   ];
 
   return h('table', { class: 'metrics' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Measured by code'), h('th', {}, 'A · no RAG'), h('th', {}, 'B · RAG'))),
-    h('tbody', {}, rows.map(renderMetricRow)),
+    renderVariantHeaders('Metric'),
+    groups.map((group) => h('tbody', {},
+      h('tr', { class: 'group-row' }, h('th', { colspan: 3, scope: 'colgroup' }, group.title)),
+      group.rows.map(renderMetricRow),
+    )),
   );
 }
 
@@ -82,25 +133,87 @@ function renderMetricRow(row) {
   );
 }
 
+/** Which column did better, if this row has a "better" direction: 'a', 'b' or null. */
 function pickWinner(a, b, better) {
   if (!better || a === b) return null;
   return (better === 'higher') === (a > b) ? 'a' : 'b';
 }
 
-function renderJudge(judge) {
-  if (!judge || judge.error) {
-    return h('div', { class: 'judge' }, h('h4', {}, 'Blind LLM judge'), h('p', { class: 'error' }, judge?.error ?? 'Not run.'));
-  }
-  const criteria = [['groundedness', 'Groundedness'], ['specificity', 'Specificity'], ['coverage', 'Coverage'], ['predictionQuality', 'Predictions']];
-  const winnerLabel = { rag: 'B · RAG', baseline: 'A · no RAG', tie: 'Tie' }[judge.winner];
+// ---------- Panel 2: the judge's scores ----------
 
-  return h('div', { class: 'judge' },
-    h('table', { class: 'metrics' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Blind LLM judge (1 to 5)'), h('th', {}, 'A · no RAG'), h('th', {}, 'B · RAG'))),
-      h('tbody', {}, criteria.map(([key, label]) => renderMetricRow({ label, a: judge.scores.baseline[key], b: judge.scores.rag[key], better: 'higher' }))),
+const JUDGE_CRITERIA = [
+  { key: 'groundedness', label: 'Groundedness' },
+  { key: 'specificity', label: 'Specificity' },
+  { key: 'coverage', label: 'Coverage' },
+  { key: 'predictionQuality', label: 'Predictions' },
+];
+const MAX_SCORE = 5;
+
+function renderJudgeScores(judge) {
+  if (!judge || judge.error) return h('p', { class: 'error' }, `The judge could not run: ${judge?.error ?? 'no result'}`);
+
+  const average = (variant) => JUDGE_CRITERIA.reduce((sum, { key }) => sum + judge.scores[variant][key], 0) / JUDGE_CRITERIA.length;
+  const averages = { a: average('baseline'), b: average('rag') };
+  const averageWinner = pickWinner(averages.a, averages.b, 'higher');
+
+  return h('table', { class: 'metrics judge-scores' },
+    renderVariantHeaders('Criterion (1 to 5)'),
+    h('tbody', {},
+      JUDGE_CRITERIA.map(({ key, label }) => {
+        const a = judge.scores.baseline[key];
+        const b = judge.scores.rag[key];
+        const winner = pickWinner(a, b, 'higher');
+        return h('tr', {},
+          h('th', { scope: 'row' }, label),
+          renderScoreCell(a, winner === 'a'),
+          renderScoreCell(b, winner === 'b'),
+        );
+      }),
     ),
-    h('p', {}, h('strong', {}, `Winner: ${winnerLabel}. `), judge.rationale),
+    h('tfoot', {},
+      h('tr', {},
+        h('th', { scope: 'row' }, 'Average'),
+        h('td', { class: averageWinner === 'a' ? 'winner' : null }, averages.a.toFixed(1)),
+        h('td', { class: averageWinner === 'b' ? 'winner' : null }, averages.b.toFixed(1)),
+      ),
+    ),
   );
+}
+
+/** "▮▮▮▯▯ 3": a small meter makes the 1–5 scores comparable at a glance. */
+function renderScoreCell(score, isWinner) {
+  const blocks = Array.from({ length: MAX_SCORE }, (_, index) => h('span', { class: index < score ? 'pip on' : 'pip' }));
+  return h('td', { class: isWinner ? 'winner' : null },
+    h('span', { class: 'score-cell' },
+      h('span', { class: 'score-meter', 'aria-hidden': 'true' }, blocks),
+      h('span', { class: 'score-value' }, score),
+    ),
+  );
+}
+
+// ---------- The judge's written verdict ----------
+
+const VARIANT_NAMES = { rag: 'B · RAG', baseline: 'A · no RAG' };
+
+function renderVerdict(judge) {
+  if (!judge || judge.error) return null;
+  const badgeText = judge.winner === 'tie' ? 'Tie' : `Winner: ${VARIANT_NAMES[judge.winner]}`;
+
+  return h('section', { class: `verdict ${judge.winner}` },
+    h('div', { class: 'verdict-heading' },
+      h('span', { class: 'verdict-label' }, 'Judge\'s verdict'),
+      h('span', { class: `winner-badge ${judge.winner}` }, badgeText),
+    ),
+    h('p', { class: 'verdict-text' }, judge.rationale),
+    renderJudgeOrderNote(judge),
+  );
+}
+
+function renderJudgeOrderNote(judge) {
+  if (typeof judge.baselineShownFirst !== 'boolean') return null;
+  const ragPosition = judge.baselineShownFirst ? 'second' : 'first';
+  return h('p', { class: 'verdict-note' },
+    `The judge saw the documents unlabeled, as "Document One" and "Document Two" in random order (B · RAG was shown ${ragPosition}). Those names are translated back to A and B above.`);
 }
 
 function coverageText(metrics) {
@@ -114,16 +227,52 @@ function seconds(milliseconds) {
 // ---------- The document itself ----------
 
 function renderDocument({ label, variant, document, sources }) {
-  return h('section', { class: `document card ${variant}` },
+  const card = h('section', { class: `document card ${variant}` });
+  const scrollTo = (element) => element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const backToTop = () => scrollTo(card);
+
+  const themesTitle = renderSectionTitle({ text: 'What the community talked about', count: document.themes.length, backToTop });
+  const predictionsTitle = renderSectionTitle({ text: 'What to expect next week', count: document.predictions.length, backToTop });
+  const caveatsTitle = renderSectionTitle({ text: 'Caveats', backToTop });
+
+  card.append(
     h('p', { class: 'variant-label' }, label),
-    h('h3', {}, document.title),
+    h('h3', { class: 'document-title' }, document.title),
+    renderJumpLinks([
+      { text: 'Past week', count: document.themes.length, onClick: () => scrollTo(themesTitle) },
+      { text: 'Next week', count: document.predictions.length, onClick: () => scrollTo(predictionsTitle) },
+      { text: 'Caveats', onClick: () => scrollTo(caveatsTitle) },
+    ]),
     h('p', { class: 'lead' }, document.weekSummary),
-    h('h4', {}, 'What the community talked about'),
-    document.themes.map((theme) => renderTheme(theme, sources)),
-    h('h4', {}, 'What to expect next week'),
-    document.predictions.map((prediction) => renderPrediction(prediction, sources)),
-    h('h4', {}, 'Caveats'),
-    h('p', { class: 'muted' }, document.caveats),
+    themesTitle,
+    h('div', { class: 'section-items' }, document.themes.map((theme) => renderTheme(theme, sources))),
+    predictionsTitle,
+    h('div', { class: 'section-items' }, document.predictions.map((prediction) => renderPrediction(prediction, sources))),
+    caveatsTitle,
+    h('p', { class: 'caveats' }, document.caveats),
+  );
+  return card;
+}
+
+/**
+ * Buttons (not "#anchor" links) because the URL hash already switches pages
+ * (#report, #map, #stats); an anchor link would trigger the router.
+ */
+function renderJumpLinks(links) {
+  return h('nav', { class: 'jump-links', 'aria-label': 'Jump to section' },
+    h('span', { class: 'jump-label' }, 'Jump to'),
+    links.map(({ text, count, onClick }) =>
+      h('button', { type: 'button', class: 'jump-link', onClick },
+        text,
+        count === undefined ? null : h('span', { class: 'count-pill' }, count))),
+  );
+}
+
+function renderSectionTitle({ text, count, backToTop }) {
+  return h('h4', { class: 'section-title' },
+    h('span', { class: 'section-title-text' }, text),
+    count === undefined ? null : h('span', { class: 'count-pill' }, count),
+    h('button', { type: 'button', class: 'to-top', onClick: backToTop, 'aria-label': 'Back to the top of this document' }, '↑ Top'),
   );
 }
 

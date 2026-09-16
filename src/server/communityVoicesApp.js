@@ -4,6 +4,7 @@ import { generateComparison, REPORT_STEPS } from '../generation/generateComparis
 import { projectTo2D } from '../visualization/pca.js';
 import { buildEmbeddingMap } from '../visualization/embeddingMap.js';
 import { createConsoleProgress } from '../utils/consoleProgress.js';
+import { withReadableJudgeRationale } from '../evaluation/judgeReports.js';
 
 /**
  * Everything the web app can do, independent of HTTP. The HTTP layer
@@ -62,7 +63,8 @@ export class CommunityVoicesApp {
   }
 
   getLatestReport() {
-    return this.reportRepository.loadLatest();
+    const report = this.reportRepository.loadLatest();
+    return report && withReadableJudgeRationale(report);
   }
 
   /**

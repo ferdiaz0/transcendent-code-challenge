@@ -1,20 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeReports, mapVerdictToVariants } from '../src/evaluation/judgeReports.js';
+import {
+  judgeReports,
+  mapVerdictToVariants,
+  relabelDocumentNames,
+  withReadableJudgeRationale,
+} from '../src/evaluation/judgeReports.js';
 import { makeDocument, makeTheme, makeFakeLlm } from './helpers/fixtures.js';
 
 const high = { groundedness: 5, specificity: 5, coverage: 5, predictionQuality: 4 };
 const low = { groundedness: 2, specificity: 2, coverage: 1, predictionQuality: 3 };
-const verdict = { documentOne: high, documentTwo: low, winner: 'documentOne', rationale: 'One is grounded.' };
+const verdict = { documentOne: high, documentTwo: low, winner: 'documentOne', rationale: 'Document One is grounded; Document Two is not.' };
 
-test('maps "documentOne/Two" back to the right variant for either order', () => {
+test('maps "documentOne/Two" back to the right variant for either order, including in the rationale', () => {
   assert.deepEqual(mapVerdictToVariants(verdict, true), {
-    scores: { baseline: high, rag: low }, winner: 'baseline', rationale: 'One is grounded.',
+    scores: { baseline: high, rag: low }, winner: 'baseline', rationale: 'A (no RAG) is grounded; B (RAG) is not.',
   });
   assert.deepEqual(mapVerdictToVariants(verdict, false), {
-    scores: { rag: high, baseline: low }, winner: 'rag', rationale: 'One is grounded.',
+    scores: { rag: high, baseline: low }, winner: 'rag', rationale: 'B (RAG) is grounded; A (no RAG) is not.',
   });
   assert.equal(mapVerdictToVariants({ ...verdict, winner: 'tie' }, true).winner, 'tie');
+});
+
+test('relabelDocumentNames handles any capitalization and is safe to run twice', () => {
+  const once = relabelDocumentNames('DOCUMENT ONE beats document two.', false);
+  assert.equal(once, 'B (RAG) beats A (no RAG).');
+  assert.equal(relabelDocumentNames(once, false), once);
+});
+
+test('withReadableJudgeRationale fixes older saved reports and leaves others alone', () => {
+  const oldReport = { id: 'x', judge: { rationale: 'Document Two wins.', baselineShownFirst: true } };
+  assert.equal(withReadableJudgeRationale(oldReport).judge.rationale, 'B (RAG) wins.');
+  assert.equal(oldReport.judge.rationale, 'Document Two wins.', 'the original object is not modified');
+
+  const failedJudge = { id: 'y', judge: { error: 'down' } };
+  assert.equal(withReadableJudgeRationale(failedJudge), failedJudge);
 });
 
 test('shows documents in random order and hides source ids from the judge', async () => {

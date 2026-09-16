@@ -61,8 +61,31 @@ export function mapVerdictToVariants(verdict, baselineIsFirst) {
       [variantOf.documentTwo]: verdict.documentTwo,
     },
     winner: verdict.winner === 'tie' ? 'tie' : variantOf[verdict.winner],
-    rationale: verdict.rationale,
+    rationale: relabelDocumentNames(verdict.rationale, baselineIsFirst),
   };
+}
+
+/**
+ * The judge writes "Document One is grounded…", but readers see A and B.
+ * Rewrites those names so the reasoning matches the rest of the page.
+ * Safe to run twice: once relabeled, there is nothing left to replace.
+ */
+export function relabelDocumentNames(text, baselineIsFirst) {
+  const nameFor = {
+    one: baselineIsFirst ? 'A (no RAG)' : 'B (RAG)',
+    two: baselineIsFirst ? 'B (RAG)' : 'A (no RAG)',
+  };
+  return text.replace(/\bdocument (one|two)\b/gi, (match, which) => nameFor[which.toLowerCase()]);
+}
+
+/**
+ * Reports saved before relabeling existed still say "Document One". This fixes
+ * them when they're read, without rewriting the saved file.
+ */
+export function withReadableJudgeRationale(report) {
+  const { judge } = report;
+  if (!judge?.rationale || typeof judge.baselineShownFirst !== 'boolean') return report;
+  return { ...report, judge: { ...judge, rationale: relabelDocumentNames(judge.rationale, judge.baselineShownFirst) } };
 }
 
 function buildJudgeMessage({ communityName, week, topStories, documentOne, documentTwo }) {
