@@ -1,0 +1,6 @@
+node_modules/
+.env
+# Local database and generated reports (rebuildable; the committed example lives in samples/)
+data/
+# The challenge brief belongs to the company; keep it out of the public repo.
+*.pdf

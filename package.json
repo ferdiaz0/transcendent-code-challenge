@@ -1,0 +1,20 @@
+{
+  "name": "community-voices",
+  "version": "1.0.0",
+  "description": "Weekly RAG-powered 'Community Voices' report for the Hacker News community",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server/index.js",
+    "ingest": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/ingest.js",
+    "report": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/generateReport.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@huggingface/transformers": "^4.3.0"
+  }
+}
